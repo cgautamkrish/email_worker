@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from flask import Flask, g
 from flask import jsonify
+from flask import request
 
 def get_salt():
 	Config = configparser.ConfigParser()
@@ -75,7 +76,7 @@ def main():
 		sys.exit(2)
 
 # FOR DEV only
-def initial_write(password):
+def initial_write(password, email_data):
 	print(password.encode())
 	def save(data):
 		text_file = open("data", "w")
@@ -87,22 +88,16 @@ def initial_write(password):
 	key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
 	f = Fernet(key)
 
-	email_data = {}
-	e = {}
-	e['server'] = 'xx.xx.com'
-	e['id'] = 'xx@xx.com'
-	e['password'] = 'xx'
-	email_data[e['id']] = e
-	email_data['check'] = True
-
 	token = f.encrypt(str(email_data).encode())
 	print(token)
 	save(token.decode())
 	print(f.decrypt(token))
+	return token
 
 app = Flask(__name__)
 # declare global variable for LRUCache
 cache = None
+pw = ''
 
 # custom cli command to initialize email cache and starting Flask
 # password to decrypt data file is cli param
@@ -111,13 +106,28 @@ cache = None
 	help='Password')
 def init(password):
 	global cache
+	global pw 
 	cache = initialize(password)
+	pw = password
 	app.run()
 
 # @app.before_first_request
 # def start():
 # 	cache = main()
 # 	g.cache = cache
+
+@app.route('/set')
+def set():
+	new_data = {}
+	all_data = {}
+	new_data['id'] = 1
+	new_data['email_id'] = 'XX@XX.com'
+	new_data['email_server'] = 'XX.XX.com'
+	new_data['email_password'] = 'XX'
+	all_data[new_data['email_id']] = new_data
+	all_data['check'] = True
+	initial_write('gautam', all_data)
+	return jsonify(status="OK")
 
 @app.route('/')
 def test():
@@ -126,10 +136,33 @@ def test():
 		response = "Cache initialization failed"
 	return jsonify(response=response)
 
-@app.route('/emails')
-def getEmailById():
+@app.route('/emails', methods=['GET'])
+def getAllEmails():
 	print("GET all emails..")
 	emails = {}
+	for key in cache.keys():
+		emails[key] = cache[key]
+	print(emails)
+	return jsonify(emails=emails)
+
+@app.route('/email', methods =['POST'])
+def updateEmailById():
+	global cache
+	request_body = request.get_json()
+	if 'email_id' in request_body:
+		try:
+			email = cache[request_body['email_id']]
+			return jsonify(email=email)
+		except KeyError as e:
+			print('Request for ' + request_body['email_id'])
+	return jsonify(message='Email ID does not exist')
+
+@app.route('/refresh')
+def refreshCache():
+	global cache
+	global pw
+	emails = {}
+	cache = initialize(pw)
 	for key in cache.keys():
 		emails[key] = cache[key]
 	return jsonify(emails=emails)
